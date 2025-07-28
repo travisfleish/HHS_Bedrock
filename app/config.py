@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
 
+
 class Settings(BaseSettings):
     # AWS Settings
     aws_region: str = "us-east-1"
@@ -9,6 +10,13 @@ class Settings(BaseSettings):
 
     # Bedrock Settings
     bedrock_model_id: str = "anthropic.claude-3-sonnet-20240229-v1:0"
+
+    # OpenAI Settings
+    use_openai: bool = True  # Set to True to use OpenAI instead of Bedrock
+    openai_api_key: Optional[str] = None
+    openai_model: str = "gpt-4-turbo-preview"  # or "gpt-3.5-turbo" for cheaper option
+
+    # Common Model Settings
     max_tokens: int = 4096
     temperature: float = 0.1
 
@@ -21,5 +29,6 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+
 
 settings = Settings()

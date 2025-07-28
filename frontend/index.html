@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMHA Exhibit Tagger - API Test Frontend</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background-color: #1e3a8a;
+            color: white;
+            padding: 20px 0;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background: white;
+            border-radius: 8px;
+            padding: 25px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .panel h2 {
+            font-size: 20px;
+            margin-bottom: 20px;
+            color: #1e3a8a;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: #374151;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .file-upload-area {
+            border: 2px dashed #d1d5db;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background-color: #f9fafb;
+        }
+
+        .file-upload-area:hover {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+
+        .file-upload-area.drag-over {
+            border-color: #3b82f6;
+            background-color: #dbeafe;
+        }
+
+        .file-upload-icon {
+            font-size: 48px;
+            color: #9ca3af;
+            margin-bottom: 10px;
+        }
+
+        .file-list {
+            margin-top: 15px;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            background-color: #f3f4f6;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+
+        .file-name {
+            font-size: 14px;
+            color: #374151;
+            flex: 1;
+            margin-right: 10px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file-size {
+            font-size: 12px;
+            color: #6b7280;
+            margin-right: 10px;
+        }
+
+        .remove-file {
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background-color 0.2s;
+        }
+
+        .remove-file:hover {
+            background: #dc2626;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            margin-right: 8px;
+        }
+
+        .submit-btn {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            width: 100%;
+        }
+
+        .submit-btn:hover:not(:disabled) {
+            background-color: #2563eb;
+        }
+
+        .submit-btn:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .results {
+            display: none;
+        }
+
+        .results.active {
+            display: block;
+        }
+
+        .result-item {
+            background-color: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .exhibit-id {
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        .document-type {
+            background-color: #3b82f6;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .confidence {
+            margin-bottom: 8px;
+        }
+
+        .confidence-bar {
+            background-color: #e5e7eb;
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            background-color: #10b981;
+            transition: width 0.3s ease;
+        }
+
+        .confidence-text {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 4px;
+        }
+
+        .review-flag {
+            background-color: #fef3c7;
+            border: 1px solid #fcd34d;
+            color: #92400e;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-top: 10px;
+            display: inline-block;
+        }
+
+        .key-indicators {
+            margin-top: 10px;
+        }
+
+        .key-indicators h4 {
+            font-size: 14px;
+            color: #374151;
+            margin-bottom: 5px;
+        }
+
+        .indicator-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .indicator {
+            background-color: #e0e7ff;
+            color: #3730a3;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .error-message {
+            background-color: #fee2e2;
+            border: 1px solid #fecaca;
+            color: #991b1b;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .error-message.active {
+            display: block;
+        }
+
+        .api-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-top: 10px;
+        }
+
+        .api-status.connected {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+
+        .api-status.disconnected {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: currentColor;
+        }
+
+        .metadata {
+            background-color: #f3f4f6;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+
+        .metadata-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .metadata-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .metadata-label {
+            color: #6b7280;
+        }
+
+        .metadata-value {
+            font-weight: 500;
+            color: #1f2937;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>OMHA Exhibit Tagger</h1>
+            <div class="subtitle">AWS Bedrock API Test Interface</div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="main-content">
+            <!-- Input Panel -->
+            <div class="panel">
+                <h2>Document Upload</h2>
+
+                <form id="tagForm">
+                    <div class="form-group">
+                        <label for="caseId">Case ID</label>
+                        <input type="text" id="caseId" name="caseId" placeholder="Enter case ID (e.g., CASE-2024-001)" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Upload Documents</label>
+                        <div class="file-upload-area" id="fileUploadArea">
+                            <div class="file-upload-icon">📄</div>
+                            <div>Drag and drop files here or click to browse</div>
+                            <div style="font-size: 12px; color: #6b7280; margin-top: 5px;">
+                                Supported: PDF, DOCX, TXT
+                            </div>
+                            <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt" style="display: none;">
+                        </div>
+                        <div class="file-list" id="fileList"></div>
+                    </div>
+
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="extractDetails" name="extractDetails">
+                        <label for="extractDetails">Extract detailed data from documents</label>
+                    </div>
+
+                    <button type="submit" class="submit-btn" id="submitBtn">Tag Documents</button>
+                </form>
+
+                <div class="api-status disconnected" id="apiStatus">
+                    <span class="status-dot"></span>
+                    <span>API Disconnected</span>
+                </div>
+            </div>
+
+            <!-- Results Panel -->
+            <div class="panel">
+                <h2>Classification Results</h2>
+
+                <div class="error-message" id="errorMessage"></div>
+
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <div>Processing documents...</div>
+                </div>
+
+                <div class="results" id="results">
+                    <div id="resultsContent"></div>
+                    <div class="metadata" id="metadata"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE_URL = 'http://localhost:8001/api/v1';
+
+        // State
+        let uploadedFiles = [];
+
+        // DOM Elements
+        const fileUploadArea = document.getElementById('fileUploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const tagForm = document.getElementById('tagForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const loading = document.getElementById('loading');
+        const results = document.getElementById('results');
+        const resultsContent = document.getElementById('resultsContent');
+        const metadata = document.getElementById('metadata');
+        const errorMessage = document.getElementById('errorMessage');
+        const apiStatus = document.getElementById('apiStatus');
+
+        // Check API health on load
+        checkApiHealth();
+
+        // File upload handling
+        fileUploadArea.addEventListener('click', () => fileInput.click());
+
+        fileUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            fileUploadArea.classList.add('drag-over');
+        });
+
+        fileUploadArea.addEventListener('dragleave', () => {
+            fileUploadArea.classList.remove('drag-over');
+        });
+
+        fileUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileUploadArea.classList.remove('drag-over');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        function handleFiles(files) {
+            for (let file of files) {
+                if (isValidFileType(file)) {
+                    uploadedFiles.push(file);
+                } else {
+                    showError(`Invalid file type: ${file.name}. Only PDF, DOCX, and TXT files are allowed.`);
+                }
+            }
+            updateFileList();
+        }
+
+        function isValidFileType(file) {
+            const validTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
+            return validTypes.includes(file.type) ||
+                   file.name.endsWith('.pdf') ||
+                   file.name.endsWith('.docx') ||
+                   file.name.endsWith('.txt');
+        }
+
+        function updateFileList() {
+            fileList.innerHTML = '';
+            uploadedFiles.forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `
+                    <span class="file-name">${file.name}</span>
+                    <span class="file-size">${formatFileSize(file.size)}</span>
+                    <button class="remove-file" onclick="removeFile(${index})">Remove</button>
+                `;
+                fileList.appendChild(fileItem);
+            });
+        }
+
+        function removeFile(index) {
+            uploadedFiles.splice(index, 1);
+            updateFileList();
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Form submission
+        tagForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (uploadedFiles.length === 0) {
+                showError('Please upload at least one document.');
+                return;
+            }
+
+            const caseId = document.getElementById('caseId').value;
+            const extractDetails = document.getElementById('extractDetails').checked;
+
+            // Prepare request data
+            const documents = await Promise.all(uploadedFiles.map(async (file) => {
+                const base64 = await fileToBase64(file);
+                return {
+                    filename: file.name,
+                    content: base64,
+                    mime_type: file.type || getMimeType(file.name)
+                };
+            }));
+
+            const requestData = {
+                case_id: caseId,
+                documents: documents,
+                extract_detailed_data: extractDetails
+            };
+
+            // Submit to API
+            submitToAPI(requestData);
+        });
+
+        async function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => {
+                    const base64 = reader.result.split(',')[1];
+                    resolve(base64);
+                };
+                reader.onerror = error => reject(error);
+            });
+        }
+
+        function getMimeType(filename) {
+            if (filename.endsWith('.pdf')) return 'application/pdf';
+            if (filename.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+            if (filename.endsWith('.txt')) return 'text/plain';
+            return 'application/octet-stream';
+        }
+
+        async function submitToAPI(data) {
+            submitBtn.disabled = true;
+            loading.classList.add('active');
+            results.classList.remove('active');
+            errorMessage.classList.remove('active');
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/tag-exhibits`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                displayResults(result);
+            } catch (error) {
+                showError(`API Error: ${error.message}`);
+            } finally {
+                submitBtn.disabled = false;
+                loading.classList.remove('active');
+            }
+        }
+
+        function displayResults(data) {
+            results.classList.add('active');
+
+            // Display classifications
+            resultsContent.innerHTML = '';
+            data.classifications.forEach(classification => {
+                const resultItem = document.createElement('div');
+                resultItem.className = 'result-item';
+
+                const confidencePercent = (classification.confidence * 100).toFixed(1);
+                const confidenceColor = classification.confidence >= 0.7 ? '#10b981' : '#f59e0b';
+
+                resultItem.innerHTML = `
+                    <div class="result-header">
+                        <span class="exhibit-id">${classification.exhibit_id}</span>
+                        <span class="document-type">${classification.document_type.replace(/_/g, ' ').toUpperCase()}</span>
+                    </div>
+                    <div class="confidence">
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" style="width: ${confidencePercent}%; background-color: ${confidenceColor}"></div>
+                        </div>
+                        <div class="confidence-text">Confidence: ${confidencePercent}%</div>
+                    </div>
+                    ${classification.requires_review ? '<div class="review-flag">⚠️ Requires Manual Review</div>' : ''}
+                    <div class="key-indicators">
+                        <h4>Key Indicators:</h4>
+                        <div class="indicator-list">
+                            ${classification.key_indicators.map(ind => `<span class="indicator">${ind}</span>`).join('')}
+                        </div>
+                    </div>
+                    ${classification.extracted_data ? `
+                        <div class="extracted-data" style="margin-top: 15px; padding: 15px; background-color: #f0f4f8; border-radius: 6px;">
+                            <h4 style="margin-bottom: 10px; color: #1e3a8a;">Extracted Information:</h4>
+                            ${Object.entries(classification.extracted_data).map(([key, value]) => `
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; padding: 5px 0; border-bottom: 1px solid #e5e7eb;">
+                                    <span style="font-weight: 500; color: #4b5563;">${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}:</span>
+                                    <span style="color: #1f2937; max-width: 60%; text-align: right;">${Array.isArray(value) ? value.join(', ') : value}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                `;
+
+                resultsContent.appendChild(resultItem);
+            });
+
+            // Display metadata
+            metadata.innerHTML = `
+                <div class="metadata-item">
+                    <span class="metadata-label">Processing Time:</span>
+                    <span class="metadata-value">${data.processing_time.toFixed(2)}s</span>
+                </div>
+                <div class="metadata-item">
+                    <span class="metadata-label">Total Exhibits:</span>
+                    <span class="metadata-value">${data.total_exhibits}</span>
+                </div>
+                <div class="metadata-item">
+                    <span class="metadata-label">Taxonomy Version:</span>
+                    <span class="metadata-value">${data.taxonomy_version}</span>
+                </div>
+                <div class="metadata-item">
+                    <span class="metadata-label">Timestamp:</span>
+                    <span class="metadata-value">${new Date(data.timestamp).toLocaleString()}</span>
+                </div>
+            `;
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('active');
+            setTimeout(() => {
+                errorMessage.classList.remove('active');
+            }, 5000);
+        }
+
+        async function checkApiHealth() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/health`);
+                if (response.ok) {
+                    const data = await response.json();
+                    apiStatus.className = 'api-status connected';
+                    apiStatus.innerHTML = `
+                        <span class="status-dot"></span>
+                        <span>API Connected (${data.model})</span>
+                    `;
+                } else {
+                    throw new Error('API not responding');
+                }
+            } catch (error) {
+                apiStatus.className = 'api-status disconnected';
+                apiStatus.innerHTML = `
+                    <span class="status-dot"></span>
+                    <span>API Disconnected</span>
+                `;
+            }
+        }
+
+        // Check API health every 30 seconds
+        setInterval(checkApiHealth, 30000);
+    </script>
+</body>
+</html>

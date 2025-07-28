@@ -40,8 +40,11 @@ async def tag_exhibits(
                 'filename': doc.filename
             })
 
-        # Classify documents
-        classifications = await tagger.classify_batch(documents)
+        # Classify documents with detailed extraction if requested
+        classifications = await tagger.classify_batch(
+            documents,
+            extract_details=request.extract_detailed_data
+        )
 
         # Build response
         processing_time = time.time() - start_time
@@ -61,8 +64,14 @@ async def tag_exhibits(
 @router.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "model": settings.bedrock_model_id}
+    service_type = "OpenAI" if settings.use_openai else "AWS Bedrock"
+    model = settings.openai_model if settings.use_openai else settings.bedrock_model_id
 
+    return {
+        "status": "healthy",
+        "service": service_type,
+        "model": model
+    }
 @router.get("/taxonomy")
 async def get_taxonomy():
     """Get current taxonomy"""
