@@ -6,6 +6,7 @@ from app.utils.taxonomy import get_taxonomy_prompt
 import logging
 import re
 import time
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +15,178 @@ class ExhibitTagger:
     def __init__(self, bedrock_service: BedrockService):
         self.bedrock = bedrock_service
         self.system_prompt = self._build_system_prompt()
-        # Reduced context window to leave room for response
-        self.max_document_length = 6000  # Reduced from 8000
+        self.max_document_length = 6000
         logger.info("ExhibitTagger initialized with max_document_length: %d", self.max_document_length)
 
+        # Add rate limiting settings
+        self.requests_per_minute = 10  # Adjust based on your AWS limits
+        self.min_request_interval = 60.0 / self.requests_per_minute  # seconds between requests
+        self.last_request_time = 0
+
+    async def _rate_limited_invoke(self, prompt: str, system_prompt: str) -> str:
+        """Invoke model with rate limiting"""
+        # Calculate time to wait
+        current_time = time.time()
+        time_since_last_request = current_time - self.last_request_time
+        if time_since_last_request < self.min_request_interval:
+            wait_time = self.min_request_interval - time_since_last_request
+            logger.info(f"Rate limiting: waiting {wait_time:.2f} seconds before next request")
+            await asyncio.sleep(wait_time)
+
+        # Update last request time and make the request
+        self.last_request_time = time.time()
+        return await self.bedrock.invoke_model(prompt, system_prompt)
+
+    # Update all model invocations to use _rate_limited_invoke
+    async def classify_document(self, document_text: str, exhibit_id: str,
+                                extract_details: bool = False) -> ExhibitClassification:
+        """Classify a single document with optional detailed extraction"""
+        logger.info("Starting classification for exhibit: %s (extract_details=%s)",
+                    exhibit_id, extract_details)
+        start_time = time.time()
+
+        # Log document characteristics
+        logger.debug("Document length: %d characters", len(document_text))
+
+        # Truncate document for classification
+        truncated_text = self._truncate_document(document_text, self.max_document_length)
+
+        prompt = f"""Classify this medical document:
+
+DOCUMENT:
+{truncated_text}
+
+OUTPUT FORMAT (return ONLY this JSON, no other text):
+{{
+    "document_type": "exact_term_from_taxonomy",
+    "confidence": 0.95,
+    "key_indicators": ["indicator1", "indicator2", "indicator3"],
+    "requires_review": false
+}}
+"""
+
+        try:
+            logger.debug("Sending classification request to model")
+            # Use rate-limited invoke
+            response = await self._rate_limited_invoke(prompt, self.system_prompt)
+            classification_time = time.time() - start_time
+            logger.debug("Received classification response in %.2f seconds", classification_time)
+
+            # Parse JSON response with improved error handling
+            classification_data = self._extract_json_from_response(response)
+            logger.info("Classified as: %s with confidence: %.2f",
+                        classification_data.get('document_type', 'unknown'),
+                        classification_data.get('confidence', 0))
+
+            # Validate document type
+            try:
+                doc_type = DocumentType(classification_data['document_type'])
+            except (ValueError, KeyError):
+                logger.warning("Invalid document type: %s",
+                               classification_data.get('document_type', 'missing'))
+                doc_type = DocumentType.UNCLASSIFIED
+                classification_data['requires_review'] = True
+
+            # Extract detailed data if requested
+            extracted_data = None
+            if extract_details and doc_type != DocumentType.UNCLASSIFIED:
+                try:
+                    logger.info("Starting detailed extraction for %s", exhibit_id)
+                    extracted_data = await self.extract_detailed_data(
+                        document_text,
+                        classification_data['document_type']
+                    )
+                except Exception as e:
+                    logger.error("Extraction failed for %s: %s", exhibit_id, str(e))
+                    extracted_data = {"extraction_error": "Failed to extract detailed data"}
+
+            total_time = time.time() - start_time
+            logger.info("Completed processing for %s in %.2f seconds", exhibit_id, total_time)
+
+            return ExhibitClassification(
+                exhibit_id=exhibit_id,
+                document_type=doc_type,
+                confidence=classification_data.get('confidence', 0.0),
+                key_indicators=classification_data.get('key_indicators', []),
+                requires_review=classification_data.get('requires_review', True),
+                extracted_data=extracted_data
+            )
+
+        except json.JSONDecodeError as e:
+            logger.error("JSON parsing failed for exhibit %s: %s", exhibit_id, str(e))
+            logger.error("Response was: %s", response[:500] if 'response' in locals() else 'No response')
+            return ExhibitClassification(
+                exhibit_id=exhibit_id,
+                document_type=DocumentType.UNCLASSIFIED,
+                confidence=0.0,
+                key_indicators=["JSON parsing error"],
+                requires_review=True
+            )
+        except Exception as e:
+            logger.error("Classification failed for exhibit %s: %s", exhibit_id, str(e), exc_info=True)
+            return ExhibitClassification(
+                exhibit_id=exhibit_id,
+                document_type=DocumentType.UNCLASSIFIED,
+                confidence=0.0,
+                key_indicators=["Classification error"],
+                requires_review=True
+            )
+
+    # Update extract_detailed_data similarly...
+    async def extract_detailed_data(self, document_text: str, document_type: str) -> Optional[Dict]:
+        """Extract detailed information based on document type"""
+        logger.info("Starting detailed extraction for document type: %s", document_type)
+        start_time = time.time()
+
+        if document_type == "unclassified":
+            logger.info("Skipping extraction for unclassified document")
+            return None
+
+        extraction_prompt = self._build_extraction_prompt(document_type)
+
+        # Truncate document for extraction to ensure we don't exceed token limits
+        truncated_text = self._truncate_document(document_text, self.max_document_length)
+
+        prompt = f"""Extract specific information from this {document_type.replace('_', ' ')} document:
+
+{extraction_prompt}
+
+DOCUMENT:
+{truncated_text}
+
+Return ONLY a JSON object with the extracted information. Use null for any information not found.
+"""
+
+        try:
+            extraction_system_prompt = """You are a medical document data extractor. 
+Extract only factual information directly stated in the document. 
+Return clean JSON with the requested fields. 
+Use null for missing information.
+Do not infer or assume information not explicitly stated."""
+
+            logger.debug("Sending extraction request to model")
+            # Use rate-limited invoke
+            response = await self._rate_limited_invoke(prompt, extraction_system_prompt)
+            logger.debug("Received extraction response")
+
+            extracted_data = self._extract_json_from_response(response)
+            logger.info("Successfully extracted %d fields", len(extracted_data))
+
+            # Clean up the extracted data (remove None values for cleaner output)
+            cleaned_data = {k: v for k, v in extracted_data.items() if v is not None}
+
+            extraction_time = time.time() - start_time
+            logger.info("Extraction completed in %.2f seconds", extraction_time)
+
+            return cleaned_data
+
+        except Exception as e:
+            logger.error("Data extraction failed after %.2f seconds: %s",
+                         time.time() - start_time, str(e), exc_info=True)
+            # Return partial data instead of None
+            return {"extraction_error": f"Failed to extract detailed data: {str(e)[:100]}"}
+
+    # Keep other methods as they are...
     def _build_system_prompt(self) -> str:
         """Build system prompt with current taxonomy"""
         taxonomy = get_taxonomy_prompt()
@@ -175,151 +344,6 @@ Examples:
             logger.debug("Truncated at natural break point: %d", break_point)
 
         return truncated + "... [truncated]"
-
-    async def extract_detailed_data(self, document_text: str, document_type: str) -> Optional[Dict]:
-        """Extract detailed information based on document type"""
-        logger.info("Starting detailed extraction for document type: %s", document_type)
-        start_time = time.time()
-
-        if document_type == "unclassified":
-            logger.info("Skipping extraction for unclassified document")
-            return None
-
-        extraction_prompt = self._build_extraction_prompt(document_type)
-
-        # Truncate document for extraction to ensure we don't exceed token limits
-        truncated_text = self._truncate_document(document_text, self.max_document_length)
-
-        prompt = f"""Extract specific information from this {document_type.replace('_', ' ')} document:
-
-{extraction_prompt}
-
-DOCUMENT:
-{truncated_text}
-
-Return ONLY a JSON object with the extracted information. Use null for any information not found.
-"""
-
-        try:
-            extraction_system_prompt = """You are a medical document data extractor. 
-Extract only factual information directly stated in the document. 
-Return clean JSON with the requested fields. 
-Use null for missing information.
-Do not infer or assume information not explicitly stated."""
-
-            logger.debug("Sending extraction request to model")
-            response = await self.bedrock.invoke_model(prompt, extraction_system_prompt)
-            logger.debug("Received extraction response")
-
-            extracted_data = self._extract_json_from_response(response)
-            logger.info("Successfully extracted %d fields", len(extracted_data))
-
-            # Clean up the extracted data (remove None values for cleaner output)
-            cleaned_data = {k: v for k, v in extracted_data.items() if v is not None}
-
-            extraction_time = time.time() - start_time
-            logger.info("Extraction completed in %.2f seconds", extraction_time)
-
-            return cleaned_data
-
-        except Exception as e:
-            logger.error("Data extraction failed after %.2f seconds: %s",
-                         time.time() - start_time, str(e), exc_info=True)
-            # Return partial data instead of None
-            return {"extraction_error": f"Failed to extract detailed data: {str(e)[:100]}"}
-
-    async def classify_document(self, document_text: str, exhibit_id: str,
-                                extract_details: bool = False) -> ExhibitClassification:
-        """Classify a single document with optional detailed extraction"""
-        logger.info("Starting classification for exhibit: %s (extract_details=%s)",
-                    exhibit_id, extract_details)
-        start_time = time.time()
-
-        # Log document characteristics
-        logger.debug("Document length: %d characters", len(document_text))
-
-        # Truncate document for classification
-        truncated_text = self._truncate_document(document_text, self.max_document_length)
-
-        prompt = f"""Classify this medical document:
-
-DOCUMENT:
-{truncated_text}
-
-OUTPUT FORMAT (return ONLY this JSON, no other text):
-{{
-    "document_type": "exact_term_from_taxonomy",
-    "confidence": 0.95,
-    "key_indicators": ["indicator1", "indicator2", "indicator3"],
-    "requires_review": false
-}}
-"""
-
-        try:
-            logger.debug("Sending classification request to model")
-            response = await self.bedrock.invoke_model(prompt, self.system_prompt)
-            classification_time = time.time() - start_time
-            logger.debug("Received classification response in %.2f seconds", classification_time)
-
-            # Parse JSON response with improved error handling
-            classification_data = self._extract_json_from_response(response)
-            logger.info("Classified as: %s with confidence: %.2f",
-                        classification_data.get('document_type', 'unknown'),
-                        classification_data.get('confidence', 0))
-
-            # Validate document type
-            try:
-                doc_type = DocumentType(classification_data['document_type'])
-            except (ValueError, KeyError):
-                logger.warning("Invalid document type: %s",
-                               classification_data.get('document_type', 'missing'))
-                doc_type = DocumentType.UNCLASSIFIED
-                classification_data['requires_review'] = True
-
-            # Extract detailed data if requested
-            extracted_data = None
-            if extract_details and doc_type != DocumentType.UNCLASSIFIED:
-                try:
-                    logger.info("Starting detailed extraction for %s", exhibit_id)
-                    extracted_data = await self.extract_detailed_data(
-                        document_text,
-                        classification_data['document_type']
-                    )
-                except Exception as e:
-                    logger.error("Extraction failed for %s: %s", exhibit_id, str(e))
-                    extracted_data = {"extraction_error": "Failed to extract detailed data"}
-
-            total_time = time.time() - start_time
-            logger.info("Completed processing for %s in %.2f seconds", exhibit_id, total_time)
-
-            return ExhibitClassification(
-                exhibit_id=exhibit_id,
-                document_type=doc_type,
-                confidence=classification_data.get('confidence', 0.0),
-                key_indicators=classification_data.get('key_indicators', []),
-                requires_review=classification_data.get('requires_review', True),
-                extracted_data=extracted_data
-            )
-
-        except json.JSONDecodeError as e:
-            logger.error("JSON parsing failed for exhibit %s: %s", exhibit_id, str(e))
-            logger.error("Response was: %s", response[:500] if 'response' in locals() else 'No response')
-            return ExhibitClassification(
-                exhibit_id=exhibit_id,
-                document_type=DocumentType.UNCLASSIFIED,
-                confidence=0.0,
-                key_indicators=["JSON parsing error"],
-                requires_review=True
-            )
-        except Exception as e:
-            logger.error("Classification failed for exhibit %s: %s", exhibit_id, str(e), exc_info=True)
-            return ExhibitClassification(
-                exhibit_id=exhibit_id,
-                document_type=DocumentType.UNCLASSIFIED,
-                confidence=0.0,
-                key_indicators=["Classification error"],
-                requires_review=True
-            )
 
     async def classify_batch(self, documents: List[Dict], extract_details: bool = False) -> List[ExhibitClassification]:
         """Classify multiple documents"""
